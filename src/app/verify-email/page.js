@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { FaLink, FaCheckCircle, FaExclamationTriangle, FaSpinner, FaEnvelope } from 'react-icons/fa';
 import Toast from '../../components/Notification/Toast';
 
+
 export default function VerifyEmailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();

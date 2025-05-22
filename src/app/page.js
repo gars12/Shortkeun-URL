@@ -43,10 +43,10 @@ export default function Home() {
               Login
             </Link>
             <Link
-              href="/register"
+          href="/register" 
               className="bg-blue-600 hover:bg-blue-700 px-3 py-1 md:px-4 md:py-2 rounded-full text-white transition-all text-sm md:text-base"
-            >
-              Daftar
+        >
+          Daftar
             </Link>
           </div>
         </div>
