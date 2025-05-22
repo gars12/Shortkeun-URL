@@ -1,25 +1,36 @@
-import { Resend } from 'resend';
+import SibApiV3Sdk from 'sib-api-v3-sdk';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+const apiKey = process.env.BREVO_API_KEY;
+
+const defaultSender = { email: '<garstough@gmail.com>', name: 'ShortKeun' };
+
+// Setup client
+const client = SibApiV3Sdk.ApiClient.instance;
+const apiKeyInstance = client.authentications['api-key'];
+apiKeyInstance.apiKey = apiKey;
+
+const apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
 
 /**
  * Fungsi umum untuk kirim email
  */
 export async function sendEmail({ to, subject, text, html, from }) {
-  try {
-    const data = await resend.emails.send({
-      from: from || 'ShortKeun URL <noreply@shortkeun-url.com>',
-      to,
-      subject,
-      text,
-      html,
-    });
+  const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
 
+  sendSmtpEmail.sender = from ? { email: from.email || defaultSender.email, name: from.name || defaultSender.name } : defaultSender;
+  sendSmtpEmail.to = [{ email: to }];
+  sendSmtpEmail.subject = subject;
+  sendSmtpEmail.htmlContent = html;
+  sendSmtpEmail.textContent = text;
+
+  try {
+    const response = await apiInstance.sendTransacEmail(sendSmtpEmail);
+    // response.messageId is available
     return {
-      messageId: data.id,
+      messageId: response.messageId || null,
     };
   } catch (error) {
-    console.error('❌ Error sending email via Resend:', error);
+    console.error('❌ Error sending email via Brevo:', error);
     throw error;
   }
 }

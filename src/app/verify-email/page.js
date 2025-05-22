@@ -5,13 +5,15 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { FaLink, FaCheckCircle, FaExclamationTriangle, FaSpinner, FaEnvelope } from 'react-icons/fa';
 import Toast from '../../components/Notification/Toast';
+import { Suspense } from 'react';
 
 
 export default function VerifyEmailPage() {
   const router = useRouter();
+  <Suspense fallback={<div>Loading...</div>}> 
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
-  
+  </Suspense>
   const [loading, setLoading] = useState(true);
   const [success, setSuccess] = useState(false);
   const [message, setMessage] = useState('');
