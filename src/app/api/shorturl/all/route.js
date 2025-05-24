@@ -1,5 +1,5 @@
+// src/app/api/shorturl/all/route.js
 import { NextResponse } from 'next/server';
-import { getAllShortUrls, isExpired } from '../../../../lib/shorturl';
 import supabase from '../../../../lib/supabase';
 import { getUserFromSession } from '../../../../lib/auth';
 
@@ -8,38 +8,59 @@ export const fetchCache = 'force-no-store';
 
 export async function GET(request) {
   try {
-    // Verifikasi user dari session
     const user = await getUserFromSession();
     
-    if (!user) {
+    if (!user || !user.id) {
       return NextResponse.json(
-        { success: false, message: 'Unauthorized' },
+        { success: false, message: 'Unauthorized - User session not found or invalid' },
         { status: 401 }
       );
     }
     
-    // Ambil semua URL pendek milik user
-    const { data: urls, error } = await supabase
+    const { data: urls, error: urlsError } = await supabase
       .from('short_urls')
       .select('*')
       .eq('user_id', user.id)
+      .is('deleted_at', null)
       .order('created_at', { ascending: false });
     
-    if (error) {
-      throw error;
+    if (urlsError) {
+      console.error("Error fetching user's short URLs:", urlsError);
+      throw urlsError;
+    }
+
+    if (!urls || urls.length === 0) {
+      return NextResponse.json(
+        { success: true, data: [] },
+        { status: 200 }
+      );
     }
     
-    // Juga ambil data klik untuk setiap URL (jika ada)
-    const { data: clickData, error: clickError } = await supabase
-      .from('clicks')
-      .select('*')
-      .in('short_url_id', urls.map(url => url.id));
+    const urlIds = urls.map(url => url.id);
+    let detailedClickData = [];
+
+    if (urlIds.length > 0) {
+        const { data: clicksFromDb, error: clickError } = await supabase
+            .from('clicks')
+            .select('short_url_id, created_at')
+            .in('short_url_id', urlIds);
+
+        if (clickError) {
+            console.error("Error fetching detailed click history:", clickError);
+        } else {
+            detailedClickData = clicksFromDb || [];
+        }
+    }
     
-    // Process URLs and clicks if available
     const processedUrls = urls.map(url => {
-      // Find click data for this URL
-      const urlClicks = clickData?.filter(click => click.short_url_id === url.id) || [];
+      const urlSpecificClicks = detailedClickData
+        .filter(click => click.short_url_id === url.id)
+        .map(click => ({ 
+            timestamp: click.created_at,
+        }));
       
+      const isUrlExpired = url.expired_at ? new Date() > new Date(url.expired_at) : false;
+
       return {
         id: url.id,
         originalUrl: url.original_url,
@@ -48,7 +69,8 @@ export async function GET(request) {
         expiredAt: url.expired_at,
         createdAt: url.created_at,
         updatedAt: url.updated_at,
-        clicks: urlClicks
+        isExpired: isUrlExpired,
+        clickHistory: urlSpecificClicks,
       };
     });
     
@@ -60,9 +82,10 @@ export async function GET(request) {
       { status: 200 }
     );
   } catch (error) {
+    console.error("API /api/shorturl/all error:", error.message, error.stack);
     return NextResponse.json(
       { success: false, message: `Error: ${error.message}` },
       { status: 500 }
     );
   }
-} 
+}

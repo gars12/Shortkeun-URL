@@ -1,17 +1,15 @@
+// src/lib/auth.js
 import { cookies } from 'next/headers';
 import supabase from './supabase';
 import bcrypt from 'bcryptjs';
 import { nanoid } from 'nanoid';
-import { generateEmailVerificationToken } from './emailVerification';
-import { sendVerificationEmail } from './emailService';
 
-// Register user
+// Register user (setelah penghapusan verifikasi email)
 export async function registerUser({ name, email, password }) {
   try {
-    // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
+    const nowISOString = new Date().toISOString();
     
-    // Insert ke tabel users
     const { data, error } = await supabase
       .from('users')
       .insert([
@@ -19,197 +17,168 @@ export async function registerUser({ name, email, password }) {
           name, 
           email, 
           password: hashedPassword,
-          created_at: new Date(),
-          updated_at: new Date(),
-          email_verified_at: null // Email belum terverifikasi
+          created_at: nowISOString,
+          updated_at: nowISOString,
+          email_verified_at: nowISOString // Pengguna langsung terverifikasi
         }
       ])
       .select('id, name, email');
       
     if (error) {
+      console.error('Supabase insert error during registration:', error);
       throw error;
     }
     
     if (!data || data.length === 0) {
       throw new Error('Gagal membuat user baru');
     }
-    
-    // Buat token verifikasi email
-    const verificationToken = generateEmailVerificationToken(data[0].id, email);
-    
-    // Kirim email verifikasi
-    try {
-      await sendVerificationEmail({
-        to: email,
-        name,
-        verificationToken
-      });
-    } catch (emailError) {
-      // Jangan gagalkan proses registrasi jika email gagal terkirim
-    }
-
-    // TIDAK membuat session otomatis lagi
-    // Pengguna harus memverifikasi email terlebih dahulu
+        
+    // Jika Anda ingin pengguna langsung login setelah registrasi:
+    // await createSession(data[0].id); 
     
     return data[0];
   } catch (error) {
+    console.error('Error in registerUser:', error.message, error.stack);
     throw error;
   }
 }
 
 // Login user
 export async function loginUser({ email, password }) {
-  // Ambil user dari database
-  const { data: user, error } = await supabase
-    .from('users')
-    .select('id, name, email, password, email_verified_at')
-    .eq('email', email)
-    .single();
-  
-  if (error || !user) throw new Error('Email atau password salah');
-  
-  // Verifikasi password
-  const isValid = await bcrypt.compare(password, user.password);
-  if (!isValid) throw new Error('Email atau password salah');
-  
-  // Periksa apakah email sudah diverifikasi
-  if (!user.email_verified_at) {
-    throw new Error('Email belum diverifikasi. Silakan cek inbox email Anda untuk link verifikasi.');
+  try {
+    const { data: user, error: userFetchError } = await supabase
+      .from('users')
+      .select('id, name, email, password, email_verified_at') 
+      .eq('email', email)
+      .single();
+    
+    if (userFetchError || !user) {
+      console.error('Supabase login user fetch error or user not found:', userFetchError);
+      throw new Error('Email atau password salah.');
+    }
+    
+    const isValid = await bcrypt.compare(password, user.password);
+    if (!isValid) {
+      throw new Error('Email atau password salah.');
+    }
+    
+    delete user.password;
+    
+    await createSession(user.id); 
+    
+    return user;
+  } catch (error) {
+    console.error('Error in loginUser:', error.message, error.stack);
+    throw error; 
   }
-  
-  // Hapus password dari object user
-  delete user.password;
-  
-  // Buat session
-  await createSession(user.id);
-  
-  return user;
 }
 
 // Buat session baru
 export async function createSession(userId) {
-  const sessionId = nanoid(32);
-  const now = new Date().toISOString();
-  
-  // Insert ke tabel sessions
-  const { error } = await supabase
-    .from('sessions')
-    .insert([
-      { 
-        id: sessionId, 
-        user_id: userId, 
-        created_at: now,
-        last_activity: now,
-        payload: {} // Tambahkan empty JSON object untuk kolom payload
-      }
-    ]);
-  
-  if (error) throw error;
-  
-  // Set cookie untuk session
-  cookies().set('sessionId', sessionId, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 60 * 60 * 24 * 7, // 7 hari
-    path: '/'
-  });
-  
-  return sessionId;
+  try {
+    const sessionId = nanoid(32);
+    const nowISOString = new Date().toISOString();
+    
+    const { error } = await supabase
+      .from('sessions')
+      .insert([
+        { 
+          id: sessionId, 
+          user_id: userId, 
+          created_at: nowISOString, 
+          last_activity: nowISOString, // Menggunakan ISO string
+          payload: {} 
+        }
+      ]);
+    
+    if (error) {
+      console.error('Supabase create session error:', error);
+      throw error;
+    }
+    
+    cookies().set('sessionId', sessionId, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 60 * 24 * 7, // 7 hari
+      path: '/'
+    });
+    
+    return sessionId;
+  } catch (error) {
+    console.error('Error in createSession:', error.message, error.stack);
+    throw error;
+  }
 }
 
 // Logout user
 export async function logout() {
-  const sessionId = cookies().get('sessionId')?.value;
-  
-  if (sessionId) {
-    // Hapus session dari database
-    await supabase.from('sessions').delete().eq('id', sessionId);
+  try {
+    const sessionId = cookies().get('sessionId')?.value;
     
-    // Hapus cookie
-    cookies().delete('sessionId');
+    if (sessionId) {
+      const { error } = await supabase.from('sessions').delete().eq('id', sessionId);
+      if (error) {
+        console.error('Supabase delete session error during logout:', error);
+      }
+      cookies().delete('sessionId');
+    }
+    return true;
+  } catch (error) {
+    console.error('Error in logout:', error.message, error.stack);
+    throw error;
   }
-  
-  return true;
 }
 
 // Ambil user dari session
 export async function getUserFromSession() {
-  const sessionId = cookies().get('sessionId')?.value;
-  if (!sessionId) return null;
-  
-  // Ambil session dari database
-  const { data: session, error } = await supabase
-    .from('sessions')
-    .select('user_id, last_activity')
-    .eq('id', sessionId)
-    .single();
-  
-  if (error || !session) return null;
-  
-  // Cek apakah session masih valid (tidak lebih dari 7 hari)
-  const currentTime = new Date();
-  const sessionTime = new Date(session.last_activity);
-  const diffDays = (currentTime - sessionTime) / (1000 * 60 * 60 * 24);
-  
-  if (diffDays > 7) {
-    await logout();
-    return null;
-  }
-  
-  // Update last activity
-  await supabase
-    .from('sessions')
-    .update({ last_activity: new Date().toISOString() })
-    .eq('id', sessionId);
-  
-  // Ambil user dari database dengan tambahan kolom email_verified_at
-  const { data: user } = await supabase
-    .from('users')
-    .select('id, name, email, email_verified_at')
-    .eq('id', session.user_id)
-    .single();
-  
-  // Jika user ditemukan tetapi email belum diverifikasi, logout dan kembalikan null
-  if (user && !user.email_verified_at) {
-    await logout(); // Hapus session
-    return null; // Paksa pengguna untuk login ulang setelah memverifikasi email
-  }
-  
-  return user;
-}
-
-// Kirim ulang email verifikasi
-export async function resendVerificationEmail(userId) {
   try {
-    // Ambil data user
-    const { data: user, error } = await supabase
-      .from('users')
-      .select('id, name, email, email_verified_at')
-      .eq('id', userId)
+    const sessionId = cookies().get('sessionId')?.value;
+    if (!sessionId) return null;
+    
+    const { data: session, error: sessionError } = await supabase
+      .from('sessions')
+      .select('user_id, last_activity') // last_activity akan menjadi ISO string
+      .eq('id', sessionId)
       .single();
     
-    if (error || !user) {
-      throw new Error('User tidak ditemukan');
+    if (sessionError || !session) {
+      if (sessionError) console.error('Supabase get session error:', sessionError);
+      return null;
     }
     
-    // Cek apakah email sudah diverifikasi
-    if (user.email_verified_at) {
-      throw new Error('Email sudah diverifikasi');
+    const currentTimeMs = Date.now();
+    const sessionLastActivityMs = new Date(session.last_activity).getTime();
+    const sevenDaysInMs = 7 * 24 * 60 * 60 * 1000;
+
+    if (currentTimeMs - sessionLastActivityMs > sevenDaysInMs) { 
+      await logout();
+      return null;
     }
     
-    // Buat token verifikasi baru
-    const verificationToken = generateEmailVerificationToken(user.id, user.email);
+    const { error: updateError } = await supabase
+      .from('sessions')
+      .update({ last_activity: new Date().toISOString() }) // Update dengan ISO string baru
+      .eq('id', sessionId);
+
+    if (updateError) {
+        console.error('Supabase update last_activity error:', updateError);
+    }
     
-    // Kirim email verifikasi
-    await sendVerificationEmail({
-      to: user.email,
-      name: user.name,
-      verificationToken
-    });
-    
-    return { success: true };
+    const { data: user, error: userError } = await supabase
+      .from('users')
+      .select('id, name, email, email_verified_at') 
+      .eq('id', session.user_id)
+      .single();
+
+    if (userError) {
+        console.error('Supabase get user from session error:', userError);
+        return null;
+    }
+        
+    return user;
   } catch (error) {
-    throw error;
+    console.error('Error in getUserFromSession:', error.message, error.stack);
+    return null;
   }
-} 
+}

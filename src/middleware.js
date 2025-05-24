@@ -1,5 +1,6 @@
+// src/middleware.js
 import { NextResponse } from 'next/server';
-import supabase from './lib/supabase';
+import supabase from './lib/supabase'; // Pastikan path ini benar
 
 // Path publik yang tidak memerlukan autentikasi
 const publicPaths = [
@@ -22,67 +23,69 @@ const authApiPaths = [
 export async function middleware(request) {
   const { pathname } = request.nextUrl;
   
-  // Jika ini merupakan path publik, biarkan request lanjut
   if (publicPaths.some(path => pathname === path || pathname.startsWith(`${path}/`))) {
     return NextResponse.next();
   }
   
-  // Cek apakah ini URL pendek (pola /{kode})
   const isShortUrl = /^\/[a-zA-Z0-9_-]{1,12}$/.test(pathname);
   if (isShortUrl) {
     return NextResponse.next();
   }
   
-  // Periksa apakah pengguna terautentikasi untuk endpoint yang memerlukan auth
   if (authApiPaths.some(path => pathname.startsWith(path)) || pathname.startsWith('/dashboard')) {
     const sessionId = request.cookies.get('sessionId')?.value;
 
     if (!sessionId) {
-      // Jika ini API call, kembalikan response 401
       if (authApiPaths.some(path => pathname.startsWith(path))) {
         return NextResponse.json(
           { success: false, message: 'Tidak terautentikasi' },
           { status: 401 }
         );
       } 
-      // Jika bukan API call, redirect ke halaman login
       else {
-        return NextResponse.redirect(new URL('/login', request.url));
+        const loginUrl = new URL('/login', request.url);
+        return NextResponse.redirect(loginUrl);
       }
     } else {
-      // Validasi sessionId dengan database
       try {
-        // Ambil session dari database
         const { data: session, error } = await supabase
           .from('sessions')
-          .select('user_id, last_activity')
+          .select('user_id, last_activity') // last_activity akan menjadi ISO string
           .eq('id', sessionId)
           .single();
         
-        // Jika session tidak valid, redirect ke login
         if (error || !session) {
-          // Hapus cookie yang tidak valid
-          const response = NextResponse.redirect(new URL('/login', request.url));
+          const loginUrl = new URL('/login', request.url);
+          const response = NextResponse.redirect(loginUrl);
           response.cookies.delete('sessionId');
           return response;
         }
         
         // Cek apakah session masih valid (tidak lebih dari 7 hari)
-        const currentTime = Math.floor(Date.now() / 1000);
-        if (currentTime - session.last_activity > 60 * 60 * 24 * 7) {
-          // Hapus cookie yang kedaluwarsa
-          const response = NextResponse.redirect(new URL('/login', request.url));
+        // Konversi last_activity (ISO string) ke milliseconds untuk perbandingan
+        const sessionLastActivityMs = new Date(session.last_activity).getTime();
+        const currentTimeMs = Date.now();
+        const sevenDaysInMs = 7 * 24 * 60 * 60 * 1000; // 7 hari dalam milidetik
+
+        if (currentTimeMs - sessionLastActivityMs > sevenDaysInMs) {
+          const loginUrl = new URL('/login', request.url);
+          const response = NextResponse.redirect(loginUrl);
           response.cookies.delete('sessionId');
           return response;
         }
         
-        // Update last activity
+        // Update last activity dengan ISO string baru
         await supabase
           .from('sessions')
-          .update({ last_activity: currentTime })
+          .update({ last_activity: new Date().toISOString() })
           .eq('id', sessionId);
-      } catch (error) {
-        return NextResponse.redirect(new URL('/login', request.url));
+      } catch (dbError) {
+        console.error("Middleware database error:", dbError);
+        const loginUrl = new URL('/login', request.url);
+        // Hapus cookie jika ada error saat validasi sesi
+        const response = NextResponse.redirect(loginUrl);
+        response.cookies.delete('sessionId'); 
+        return response;
       }
     }
   }
@@ -100,4 +103,4 @@ export const config = {
      */
     '/((?!_next/static|_next/image|favicon.ico).*)',
   ],
-}; 
+};

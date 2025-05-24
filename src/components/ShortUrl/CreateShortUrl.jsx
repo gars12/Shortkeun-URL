@@ -152,7 +152,7 @@ export default function CreateShortUrl({ onUrlCreated, userId }) {
             </label>
             <div className="flex rounded-lg overflow-hidden">
               <span className="inline-flex items-center px-2 text-xs text-blue-300 bg-blue-900/40 border border-r-0 border-blue-700/50">
-                {process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/
+                {process.env.NEXT_PUBLIC_APP_URL}/
               </span>
               <input
                 type="text"

@@ -1,311 +1,230 @@
+// src/lib/shorturl.js
 import { nanoid } from 'nanoid';
-import supabase from './supabase';
-import { getUserFromSession } from './auth';
+import supabase from './supabase'; // Pastikan path ini benar dan supabase client terinisialisasi
 
-// Membuat URL pendek baru
 export async function createShortUrl({ originalUrl, customSlug = null, expiresAt = null, userId = null }) {
   try {
-    console.log("Creating short URL with params:", { originalUrl, customSlug, expiresAt, userId });
-    
-    // Ambil user dari session jika tidak ada userId yang diberikan
+    console.log("[createShortUrl] Fungsi dipanggil dengan:", { originalUrl, customSlug, expiresAt, userId });
     let finalUserId = userId;
-    if (!userId || userId === '00000000-0000-0000-0000-000000000000') {
-      const sessionUser = await getUserFromSession();
-      if (sessionUser) {
-        finalUserId = sessionUser.id;
-        console.log("Using user ID from session:", finalUserId);
-      }
+    if (!finalUserId) {
+        finalUserId = 1; // Default user anonim
+        console.log("[createShortUrl] userId tidak ada, menggunakan default:", finalUserId);
     }
-    
-    // Generate kode pendek unik atau gunakan customSlug jika ada
+
     const shortCode = customSlug || nanoid(6);
-    console.log("Short code generated:", shortCode);
-    
-    // Buat shortened_url dari kode pendek
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     const shortenedUrl = `${baseUrl}/${shortCode}`;
-    console.log("Shortened URL:", shortenedUrl);
+    console.log("[createShortUrl] URL pendek yang akan dibuat:", shortenedUrl);
     
-    // Data untuk insert
+    const nowISOString = new Date().toISOString();
     const insertData = {
       original_url: originalUrl,
       shortened_url: shortenedUrl,
       click_count: 0,
-      expired_at: expiresAt,
-      created_at: new Date(),
-      updated_at: new Date()
-      // Tidak menambahkan user_id jika tidak ada user yang login
+      expired_at: expiresAt, 
+      created_at: nowISOString,
+      updated_at: nowISOString,
+      user_id: parseInt(finalUserId, 10) || 1 
     };
     
-    // Tambahkan user_id jika ada user yang login
-    if (finalUserId && finalUserId !== '00000000-0000-0000-0000-000000000000') {
-      // Konversi ke integer jika perlu
-      insertData.user_id = typeof finalUserId === 'number' ? finalUserId : parseInt(finalUserId, 10) || null;
-    }
-    
-    console.log("Insert data:", insertData);
-    
-    // Test koneksi Supabase
-    console.log("Testing Supabase connection...");
-    const { data: testData, error: testError } = await supabase
-      .from('short_urls')
-      .select('count(*)')
-      .limit(1);
-    
-    if (testError) {
-      console.error("Supabase connection test failed:", testError);
-      throw new Error(`Supabase connection issue: ${testError.message}`);
-    }
-    console.log("Supabase connection test successful:", testData);
-    
-    // Insert ke database
-    console.log("Inserting into database...");
+    console.log("[createShortUrl] Data yang akan diinsert ke short_urls:", JSON.stringify(insertData));
     const { data, error } = await supabase
       .from('short_urls')
       .insert([insertData])
-      .select();
+      .select()
+      .single(); 
     
     if (error) {
-      console.error("Insert error:", error);
+      console.error("[createShortUrl] Supabase insert error ke short_urls:", JSON.stringify(error, null, 2));
       throw error;
     }
-    
-    console.log("Short URL created successfully:", data[0]);
-    return data[0];
+    console.log("[createShortUrl] Berhasil insert ke short_urls, data:", JSON.stringify(data, null, 2));
+    return data;
   } catch (error) {
-    console.error("Error in createShortUrl:", error);
-    if (error.code) console.error("Error code:", error.code);
-    if (error.details) console.error("Error details:", error.details);
-    if (error.hint) console.error("Error hint:", error.hint);
+    console.error("[createShortUrl] Catch error:", error.message, error.stack);
     throw error;
   }
 }
 
-// Ambil URL pendek berdasarkan kode
 export async function getShortUrlByCode(code) {
   try {
-    console.log(`[getShortUrlByCode] Looking for URL with code: ${code}`);
-    if (!code) {
-      console.error('[getShortUrlByCode] No code provided');
+    console.log(`[getShortUrlByCode] Mencari URL untuk kode: ${code}`);
+    if (!code || code.trim() === '') {
+        console.warn(`[getShortUrlByCode] Kode tidak valid atau kosong: '${code}'`);
+        return null;
+    }
+    
+    const shortenedUrlPattern = `%/${code}`;
+    console.log(`[getShortUrlByCode] Menggunakan pola LIKE: '${shortenedUrlPattern}'`);
+
+    const { data, error } = await supabase
+      .from('short_urls')
+      .select('*')
+      .like('shortened_url', shortenedUrlPattern)
+      .is('deleted_at', null)
+      .maybeSingle(); 
+
+    if (error) {
+      console.error(`[getShortUrlByCode] Error saat mengambil URL dengan kode '${code}':`, JSON.stringify(error, null, 2));
       return null;
     }
     
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-    const shortenedUrl = `${baseUrl}/${code}`;
-    console.log(`[getShortUrlByCode] Searching for shortened URL: ${shortenedUrl}`);
-    
-    // Metode 1: Coba cari berdasarkan shortened_url yang lengkap
-    const { data: exactMatchData, error: exactMatchError } = await supabase
-      .from('short_urls')
-      .select('*')
-      .eq('shortened_url', shortenedUrl)
-      .is('deleted_at', null)
-      .maybeSingle();
-    
-    if (!exactMatchError && exactMatchData) {
-      console.log(`[getShortUrlByCode] Found by exact match: ${exactMatchData.shortened_url}`);
-      return exactMatchData;
-    }
-    
-    console.log(`[getShortUrlByCode] Not found by exact match, error:`, exactMatchError);
-    
-    // Metode 2: Coba cari dengan LIKE pattern
-    console.log(`[getShortUrlByCode] Trying with LIKE pattern for code: ${code}`);
-    const { data: likePatternData, error: likePatternError } = await supabase
-      .from('short_urls')
-      .select('*')
-      .like('shortened_url', `%/${code}`)
-      .is('deleted_at', null)
-      .maybeSingle();
-      
-    if (!likePatternError && likePatternData) {
-      console.log(`[getShortUrlByCode] Found by LIKE pattern: ${likePatternData.shortened_url}`);
-      return likePatternData;
-    }
-    
-    console.log(`[getShortUrlByCode] Not found by LIKE pattern, error:`, likePatternError);
-    
-    // Metode 3: Ambil semua URL dan cari dengan JavaScript
-    console.log(`[getShortUrlByCode] Trying direct search in all URLs for code: ${code}`);
-    const { data: allUrlsData, error: allUrlsError } = await supabase
-      .from('short_urls')
-      .select('*')
-      .is('deleted_at', null);
-      
-    if (allUrlsError) {
-      console.error(`[getShortUrlByCode] Error fetching all URLs:`, allUrlsError);
+    if (data) {
+        const urlParts = data.shortened_url.split('/');
+        const foundCode = urlParts[urlParts.length - 1];
+        if (foundCode === code) {
+            console.log(`[getShortUrlByCode] URL ditemukan:`, JSON.stringify(data, null, 2));
+            return data;
+        } else {
+            console.warn(`[getShortUrlByCode] URL ditemukan (${data.shortened_url}) tetapi kode tidak cocok (ekspektasi ${code}, dapat ${foundCode})`);
+        }
     } else {
-      // Cari URL yang mengandung kode di shortened_url
-      const matchedUrl = allUrlsData.find(url => 
-        url.shortened_url.includes(`/${code}`) || 
-        url.shortened_url.endsWith(code)
-      );
-      
-      if (matchedUrl) {
-        console.log(`[getShortUrlByCode] Found by JS search: ${matchedUrl.shortened_url}`);
-        return matchedUrl;
-      }
-      
-      console.log(`[getShortUrlByCode] Not found in ${allUrlsData.length} URLs checked by JS`);
+        console.warn(`[getShortUrlByCode] Tidak ada URL yang ditemukan untuk kode: ${code}`);
     }
-    
-    console.error(`[getShortUrlByCode] URL not found for code: ${code} after trying all methods`);
     return null;
   } catch (error) {
-    console.error(`[getShortUrlByCode] Error:`, error);
+    console.error(`[getShortUrlByCode] Error umum untuk kode '${code}':`, error.message, error.stack);
     return null;
   }
 }
 
-// Increment jumlah klik
-export async function incrementClickCount(id) {
+export async function incrementClickCount(id, ipAddress = null, userAgent = null) {
+  let operationStatus = { rpcIncrement: false, manualIncrement: false, clickRecordInsert: false, errors: [] };
   try {
-    console.log(`[incrementClickCount] Starting increment for ID: ${id}`);
-    
-    if (!id) {
-      console.error('[incrementClickCount] Invalid ID provided:', id);
-      throw new Error('ID is required to increment click count');
+    console.log(`[incrementClickCount] Memulai untuk short_url_id: ${id}, IP: ${ipAddress}, UserAgent: ${userAgent}`);
+    if (id === null || id === undefined) { // Periksa null atau undefined
+      console.error('[incrementClickCount] ID short_url_id tidak valid (null atau undefined):', id);
+      operationStatus.errors.push('ID short_url_id tidak valid (null atau undefined)');
+      return operationStatus;
     }
     
-    // Konversi ID ke angka jika string
     const numericId = typeof id === 'string' ? parseInt(id, 10) : id;
-    
     if (isNaN(numericId)) {
-      console.error('[incrementClickCount] ID is not a valid number:', id);
-      throw new Error('ID must be a valid number');
+      console.error('[incrementClickCount] short_url_id bukan angka yang valid:', id);
+      operationStatus.errors.push('short_url_id bukan angka yang valid');
+      return operationStatus;
     }
-    
-    console.log(`[incrementClickCount] Using numeric ID: ${numericId}`);
-    
-    // Log struktur tabel untuk debugging
-    console.log(`[incrementClickCount] Checking table structure...`);
-    const { data: tableInfo, error: tableError } = await supabase
-      .from('short_urls')
-      .select('id, click_count')
-      .limit(1);
-      
-    if (tableError) {
-      console.error(`[incrementClickCount] Table structure check failed:`, tableError);
-    } else {
-      console.log(`[incrementClickCount] Table structure sample:`, tableInfo);
-    }
-    
-    // Ambil data saat ini dengan error handling yang lebih baik
-    console.log(`[incrementClickCount] Fetching current data for ID: ${numericId}`);
-    const { data: currentData, error: fetchError } = await supabase
-      .from('short_urls')
-      .select('click_count, id')
-      .eq('id', numericId)
-      .maybeSingle();
-      
-    if (fetchError) {
-      console.error(`[incrementClickCount] Error fetching current data:`, fetchError);
-      
-      // Coba cara alternatif jika ID mungkin bukan numerik
-      console.log(`[incrementClickCount] Trying alternative fetch with string ID: ${id}`);
-      const { data: altData, error: altError } = await supabase
-        .from('short_urls')
-        .select('click_count, id')
-        .eq('id', id.toString())
-        .maybeSingle();
+    console.log(`[incrementClickCount] ID numerik yang akan digunakan: ${numericId}`);
+
+    // 1. Increment click_count di tabel short_urls
+    console.log(`[incrementClickCount] Mencoba RPC 'increment' untuk ID short_urls: ${numericId}`);
+    const { error: rpcError } = await supabase.rpc('increment', { row_id: numericId, x: 1 });
+
+    if (rpcError) {
+        console.error(`[incrementClickCount] Gagal RPC 'increment' untuk ID ${numericId}. Error:`, JSON.stringify(rpcError, null, 2));
+        operationStatus.errors.push(`RPC increment gagal: ${JSON.stringify(rpcError)}`);
         
-      if (altError) {
-        console.error(`[incrementClickCount] Alternative fetch also failed:`, altError);
-        throw new Error(`Failed to fetch current click count: ${fetchError.message}`);
-      }
-      
-      if (!altData) {
-        console.error(`[incrementClickCount] No data found with ID: ${id}`);
-        throw new Error(`No record found with ID: ${id}`);
-      }
-      
-      console.log(`[incrementClickCount] Found data with alternative fetch:`, altData);
-      return incrementAndUpdate(altData);
+        console.log(`[incrementClickCount] Mencoba update manual click_count untuk ID ${numericId}`);
+        const { data: currentData, error: fetchError } = await supabase
+            .from('short_urls')
+            .select('click_count')
+            .eq('id', numericId)
+            .single();
+
+        if (fetchError || !currentData) {
+            console.error(`[incrementClickCount] Gagal mengambil click_count saat ini untuk ID ${numericId}. Error:`, JSON.stringify(fetchError, null, 2));
+            operationStatus.errors.push(`Gagal fetch click_count: ${JSON.stringify(fetchError)}`);
+        } else {
+            const newClickCount = (currentData.click_count || 0) + 1;
+            const { error: updateError } = await supabase
+                .from('short_urls')
+                .update({ click_count: newClickCount, updated_at: new Date().toISOString() })
+                .eq('id', numericId);
+
+            if (updateError) {
+                console.error(`[incrementClickCount] Gagal update manual click_count untuk ID ${numericId}. Error:`, JSON.stringify(updateError, null, 2));
+                operationStatus.errors.push(`Gagal update manual click_count: ${JSON.stringify(updateError)}`);
+            } else {
+                console.log(`[incrementClickCount] Berhasil update manual click_count untuk ID ${numericId} ke ${newClickCount}`);
+                operationStatus.manualIncrement = true;
+            }
+        }
+    } else {
+        console.log(`[incrementClickCount] Berhasil RPC 'increment' untuk ID ${numericId}`);
+        operationStatus.rpcIncrement = true;
+    }
+
+    // 2. Insert ke tabel clicks untuk mencatat riwayat klik
+    const clickRecord = {
+      short_url_id: numericId,
+      created_at: new Date().toISOString(),
+      ...(ipAddress && { ip_address: ipAddress }),
+      ...(userAgent && { user_agent: userAgent }),
+    };
+    console.log(`[incrementClickCount] Data yang akan di-insert ke tabel 'clicks':`, JSON.stringify(clickRecord));
+
+    const { data: clickInsertData, error: clickInsertError } = await supabase
+      .from('clicks') 
+      .insert(clickRecord)
+      .select(); 
+
+    if (clickInsertError) {
+      console.error(`[incrementClickCount] GAGAL insert ke tabel 'clicks' untuk short_url_id ${numericId}. Error:`, JSON.stringify(clickInsertError, null, 2));
+      operationStatus.errors.push(`Gagal insert ke clicks: ${JSON.stringify(clickInsertError)}`);
+    } else {
+      console.log(`[incrementClickCount] BERHASIL insert ke tabel 'clicks' untuk short_url_id ${numericId}. Data yang di-return:`, JSON.stringify(clickInsertData, null, 2));
+      operationStatus.clickRecordInsert = true;
     }
     
-    if (!currentData) {
-      console.error(`[incrementClickCount] No data found with ID: ${numericId}`);
-      throw new Error(`No record found with ID: ${numericId}`);
-    }
-    
-    console.log(`[incrementClickCount] Current data:`, currentData);
-    return incrementAndUpdate(currentData);
-    
-    // Helper function to increment and update
-    async function incrementAndUpdate(data) {
-      // Increment click count secara manual
-      const newClickCount = ((data?.click_count || 0) + 1);
-      console.log(`[incrementClickCount] New click count will be: ${newClickCount}`);
-      
-      // Update record
-      console.log(`[incrementClickCount] Updating record for ID: ${data.id}`);
-      const { data: updatedData, error: updateError } = await supabase
-        .from('short_urls')
-        .update({
-          click_count: newClickCount,
-          updated_at: new Date()
-        })
-        .eq('id', data.id)
-        .select();
-      
-      if (updateError) {
-        console.error(`[incrementClickCount] Error updating record:`, updateError);
-        throw new Error(`Failed to update click count: ${updateError.message}`);
-      }
-      
-      if (!updatedData || updatedData.length === 0) {
-        console.error(`[incrementClickCount] Update returned no data`);
-        throw new Error('Update completed but no data returned');
-      }
-      
-      console.log(`[incrementClickCount] Update successful. New data:`, updatedData[0]);
-      return updatedData[0];
-    }
+    console.log('[incrementClickCount] Status operasi akhir:', operationStatus);
+    return operationStatus; // Mengembalikan objek status
   } catch (error) {
-    console.error('[incrementClickCount] Error incrementing click count:', error);
-    if (error.code) console.error('[incrementClickCount] Error code:', error.code);
-    if (error.details) console.error('[incrementClickCount] Error details:', error.details);
-    if (error.hint) console.error('[incrementClickCount] Error hint:', error.hint);
+    console.error('[incrementClickCount] Error Umum di luar dugaan:', error.message, error.stack);
+    operationStatus.errors.push(`Error umum: ${error.message}`);
+    return operationStatus;
+  }
+}
+
+export async function getAllShortUrls(userId = null) {
+  try {
+    console.log(`[getAllShortUrls] Dipanggil untuk userId: ${userId || 'semua (jika admin)'}`);
+    let query = supabase
+      .from('short_urls')
+      .select('*')
+      .is('deleted_at', null);
+    
+    if (userId) {
+      query = query.eq('user_id', userId);
+    }
+    
+    const { data, error } = await query.order('created_at', { ascending: false });
+    
+    if (error) {
+      console.error("[getAllShortUrls] Error mengambil data short_urls:", JSON.stringify(error, null, 2));
+      throw error;
+    }
+    console.log(`[getAllShortUrls] Berhasil mengambil ${data?.length || 0} short_urls.`);
+    return data || [];
+  } catch (error) {
+    console.error("[getAllShortUrls] Catch error:", error.message, error.stack);
     throw error;
   }
 }
 
-// Ambil semua URL pendek
-export async function getAllShortUrls(userId = null) {
-  let query = supabase
-    .from('short_urls')
-    .select('*')
-    .is('deleted_at', null);
-  
-  // Filter berdasarkan user_id jika ada
-  if (userId) {
-    query = query.eq('user_id', userId);
-  }
-  
-  const { data, error } = await query.order('created_at', { ascending: false });
-  
-  if (error) throw error;
-  
-  return data;
-}
-
-// Hapus URL pendek (soft delete)
 export async function deleteShortUrl(id) {
-  const { error } = await supabase
-    .from('short_urls')
-    .update({
-      deleted_at: new Date(),
-      updated_at: new Date()
-    })
-    .eq('id', id);
-  
-  if (error) throw error;
-  
-  return true;
+  try {
+    console.log(`[deleteShortUrl] Dipanggil untuk ID: ${id}`);
+    const { error } = await supabase
+      .from('short_urls')
+      .update({
+        deleted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id);
+    
+    if (error) {
+      console.error("[deleteShortUrl] Error saat menghapus URL:", JSON.stringify(error, null, 2));
+      throw error;
+    }
+    console.log(`[deleteShortUrl] Berhasil soft delete URL ID: ${id}`);
+    return true;
+  } catch (error) {
+    console.error("[deleteShortUrl] Catch error:", error.message, error.stack);
+    throw error;
+  }
 }
 
-// Cek apakah URL sudah expired
 export function isExpired(expiredAt) {
   if (!expiredAt) return false;
   return new Date() > new Date(expiredAt);
-} 
+}

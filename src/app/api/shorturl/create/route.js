@@ -44,7 +44,7 @@ export async function POST(request) {
     }
     
     // Buat URL lengkap
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL;
     const shortenedUrl = `${baseUrl}/${shortCode}`;
     
     // Siapkan data untuk database
