@@ -1,8 +1,7 @@
-// src/app/dashboard/page.js
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link'; 
+import Link from 'next/link';
 import Navbar from '../../components/Layout/Navbar';
 import CreateShortUrl from '../../components/ShortUrl/CreateShortUrl';
 import UrlList from '../../components/ShortUrl/UrlList';
@@ -50,91 +49,74 @@ export default function Dashboard() {
 
   useEffect(() => {
     async function fetchUserData() {
-      // setLoading(true) akan dihandle oleh useEffect berikutnya atau jika fetch user gagal
       try {
         const response = await fetch('/api/auth/user');
         if (!response.ok) {
-          console.warn('[Dashboard] User not authenticated, API returned:', response.status);
           setUser(null);
-          setUserId(null); // Eksplisit set userId ke null
-          setLoading(false); // Selesaikan loading jika autentikasi gagal
+          setUserId(null);
+          setLoading(false);
           return;
         }
         const userData = await response.json();
         if (userData && userData.user) {
           setUser(userData.user);
           setUserId(userData.user.id);
-          // setLoading(false) akan dihandle oleh useEffect yang mengambil statistik
         } else {
           setUser(null);
-          setUserId(null); // Eksplisit set userId ke null
-          setLoading(false); // Selesaikan loading jika tidak ada user dalam data
+          setUserId(null);
+          setLoading(false);
         }
       } catch (error) {
-        console.error('[Dashboard] Error fetching user data:', error);
+        // console.error('[Dashboard] Error fetching user data:', error); // Hapus di prod
         setUser(null);
         setUserId(null);
-        setLoading(false); // Selesaikan loading jika terjadi error
+        setLoading(false);
       }
     }
     fetchUserData();
-  }, []); // Hanya dijalankan sekali saat komponen dimuat
+  }, []);
 
   useEffect(() => {
     async function fetchStatisticsAndClicks() {
       if (!userId) { 
-          console.log('[Dashboard] No userId, skipping fetchStatisticsAndClicks.');
-          // Pastikan statistik dan data klik direset jika userId menjadi null
           setStatistics({ totalUrls: 0, totalClicks: 0, activeUrls: 0 });
           setClickData([]);
-          setLoading(false); // Pastikan loading false jika kita melewati fetch ini
+          setLoading(false); 
           return;
       }
 
-      setLoading(true); // Mulai loading untuk statistik
+      setLoading(true);
       try {
-        console.log('[Dashboard] Memulai pengambilan statistik URL & klik untuk userId:', userId);
         const response = await fetch('/api/shorturl/all');
-        
         if (!response.ok) {
-          console.error('[Dashboard] Gagal mengambil data URL:', response.status, await response.text());
+          // console.error('[Dashboard] Gagal mengambil data URL:', response.status); // Hapus di prod
           setStatistics({ totalUrls: 0, totalClicks: 0, activeUrls: 0 });
           setClickData([]);
           return;
         }
         
         const data = await response.json();
-        console.log('[Dashboard] Data URL diterima dari API:', data);
-        
         if (data && data.data) {
           const urls = data.data;
           const totalClicks = urls.reduce((acc, url) => acc + (url.clickCount || 0), 0);
-          const activeUrls = urls.filter(url => !url.isExpired).length; // Asumsi ada properti isExpired
+          const activeUrls = urls.filter(url => !url.isExpired).length;
           
-          setStatistics({
-            totalUrls: urls.length,
-            totalClicks,
-            activeUrls
-          });
-          console.log('[Dashboard] Statistik diupdate:', { totalUrls: urls.length, totalClicks, activeUrls });
+          setStatistics({ totalUrls: urls.length, totalClicks, activeUrls });
 
           const aggregatedClickHistory = [];
           urls.forEach(url => {
-            const historySource = url.clickHistory || url.clicks; // Cek kedua properti
+            const historySource = url.clickHistory || url.clicks;
             if (historySource && Array.isArray(historySource) && historySource.length > 0) {
               aggregatedClickHistory.push(...historySource);
             }
           });
-          
-          console.log(`[Dashboard] Total data klik mentah (aggregatedClickHistory) terkumpul: ${aggregatedClickHistory.length} entri.`);
           setClickData(aggregatedClickHistory);
         } else {
-          console.warn('[Dashboard] Tidak ada data.data dalam respons API.');
           setStatistics({ totalUrls: 0, totalClicks: 0, activeUrls: 0 });
           setClickData([]);
         }
       } catch (error) {
-        console.error('[Dashboard] Error saat mengambil statistik & klik:', error);
+        // console.error('[Dashboard] Error saat mengambil statistik & klik:', error); // Hapus di prod
         setStatistics({ totalUrls: 0, totalClicks: 0, activeUrls: 0 });
         setClickData([]);
       } finally {
@@ -142,25 +124,17 @@ export default function Dashboard() {
       }
     }
     
-    // Panggil fetchStatisticsAndClicks hanya jika userId sudah ada (bukan null)
-    // Ini akan dipicu ketika userId pertama kali di-set atau ketika refreshTrigger berubah
     if (userId) {
       fetchStatisticsAndClicks();
     } else if (user === null && loading) { 
-      // Kasus di mana fetchUserData selesai dan tidak menemukan user, hentikan loading awal.
-      // Ini mencegah loading tanpa akhir jika user tidak login.
       setLoading(false);
     }
 
-  }, [userId, refreshTrigger]); // Sekarang bergantung pada userId dan refreshTrigger
+  }, [userId, refreshTrigger, user, loading]); // Tambahkan user dan loading sbg dependensi untuk initial load
 
   useEffect(() => {
     function processClickDataForChart() {
-      console.log('[Dashboard processClickDataForChart] Memulai pemrosesan data untuk chart.');
-      console.log('[Dashboard processClickDataForChart] Raw clickData state (yang akan diproses):', JSON.stringify(clickData));
-      
       if (!clickData || clickData.length === 0) {
-        console.log('[Dashboard processClickDataForChart] Tidak ada data klik (clickData) untuk diproses.');
         setProcessedData([]);
         setLabels([]);
         return;
@@ -189,8 +163,6 @@ export default function Dashboard() {
           dateFormat = 'EEE';
       }
       
-      console.log(`[Dashboard processClickDataForChart] Rentang: Mulai: ${startDate.toISOString()}, Akhir: ${endDate.toISOString()}, Format: ${dateFormat}`);
-      
       const datesInRange = eachDayOfInterval({ start: startDate, end: endDate });
       const newLabels = datesInRange.map(date => format(date, dateFormat, { locale: id }));
       
@@ -204,14 +176,11 @@ export default function Dashboard() {
               countForThisDate++;
             }
           } catch (err) {
-            console.error('[Dashboard processClickDataForChart] Error memproses timestamp klik:', err, click);
+            // console.error('[Dashboard processClickDataForChart] Error memproses timestamp klik:', err, click); // Hapus di prod
           }
         });
         return countForThisDate;
       });
-      
-      console.log('[Dashboard processClickDataForChart] Labels:', newLabels);
-      console.log('[Dashboard processClickDataForChart] Click Counts per hari:', clickCounts);
       
       setProcessedData(clickCounts);
       setLabels(newLabels);
@@ -275,7 +244,6 @@ export default function Dashboard() {
     }
   };
 
-  // Kondisi loading yang lebih spesifik untuk bagian utama dashboard
   const mainContentLoading = loading && userId === null && user === null;
 
   if (mainContentLoading) {
@@ -299,11 +267,9 @@ export default function Dashboard() {
   return (
     <>
       <Navbar user={user} />
-      
       <div className="fixed top-20 right-10 w-16 h-16 rounded-full bg-blue-500/10 backdrop-blur-xl animate-float hidden md:block"></div>
       <div className="fixed bottom-20 left-10 w-10 h-10 rounded-full bg-purple-500/10 backdrop-blur-xl animate-float-slow hidden md:block"></div>
       <div className="fixed top-1/3 left-1/4 w-24 h-24 rounded-full bg-gradient-to-br from-blue-500/5 to-purple-500/5 backdrop-blur-xl rotate-45 animate-pulse-slow hidden lg:block"></div>
-      
       <div className="container mx-auto px-4 py-8">
         <div className="mb-8">
           <div className="bg-gradient-to-r from-blue-900/30 to-purple-900/30 backdrop-blur-sm rounded-2xl border border-white/10 p-6 mb-8 relative overflow-hidden">
@@ -315,7 +281,6 @@ export default function Dashboard() {
               <p className="text-blue-300 mb-6">
                 Kelola tautan pendek dan lihat statistik kunjungan di dashboard Anda
               </p>
-              
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-white/5 backdrop-blur-md rounded-xl border border-white/10 p-4 flex items-center dashboard-card">
                   <div className="h-12 w-12 rounded-full bg-blue-500/20 flex items-center justify-center mr-4"><FaLink className="text-blue-400" /></div>
@@ -333,7 +298,6 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
-        
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-1 space-y-6">
             <CreateShortUrl onUrlCreated={handleUrlCreated} userId={userId} />
@@ -349,7 +313,6 @@ export default function Dashboard() {
               </ul>
             </div>
           </div>
-          
           <div className="lg:col-span-2 space-y-6">
             <div className="bg-white/5 backdrop-blur-md p-5 rounded-xl border border-white/10 shadow-xl bg-grid">
               <div className="flex justify-between items-center mb-4">
@@ -374,7 +337,6 @@ export default function Dashboard() {
                   </div>
                 </div>
               </div>
-              
               <div className="h-64 w-full relative mb-2">
                 <div className="absolute inset-0 bg-gradient-to-b from-blue-900/5 to-blue-900/0 rounded-lg"></div>
                 {(labels && labels.length > 0 && processedData && processedData.length > 0 && processedData.some(d => d > 0)) ? ( 
@@ -387,7 +349,6 @@ export default function Dashboard() {
                   </div>
                 )}
               </div>
-              
               {(labels && labels.length > 0 && processedData && processedData.length > 0 && processedData.some(d => d > 0)) && ( 
                 <div className="flex justify-center items-center mt-2">
                   <div className="flex items-center text-sm text-blue-300">
@@ -397,7 +358,6 @@ export default function Dashboard() {
                 </div>
               )}
             </div>
-            
             <div className="bg-white/5 backdrop-blur-md p-5 rounded-xl border border-white/10 shadow-xl">
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-bold bg-gradient-to-r from-blue-400 to-blue-100 bg-clip-text text-transparent flex items-center">
@@ -412,7 +372,6 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
-      
       <div className="mt-10 py-6 border-t border-white/10 bg-gradient-to-b from-transparent to-blue-950/50">
         <div className="container mx-auto px-4">
           <div className="flex flex-col md:flex-row justify-between items-center">
@@ -428,7 +387,6 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
-      
       <div className="fixed bottom-0 left-0 w-full overflow-hidden pointer-events-none z-0"><div className="waveform"></div></div>
       <div className="dots-container hidden lg:block pointer-events-none">
         <div className="dot dot-1"><div className="pulse"></div></div><div className="dot dot-3"><div className="pulse"></div></div>

@@ -3,7 +3,6 @@ import { logout } from '../../../../lib/auth';
 
 export async function POST() {
   try {
-    // Lakukan logout
     await logout();
 
     return NextResponse.json(
@@ -14,10 +13,10 @@ export async function POST() {
       { status: 200 }
     );
   } catch (error) {
-    console.error('Error logout:', error);
+    // console.error('API Logout error:', error); // Hapus untuk production
     return NextResponse.json(
       { success: false, message: 'Terjadi kesalahan saat logout' },
       { status: 500 }
     );
   }
-} 
+}

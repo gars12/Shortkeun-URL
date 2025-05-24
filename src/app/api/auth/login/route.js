@@ -3,39 +3,56 @@ import { NextResponse } from 'next/server';
 import { loginUser } from '../../../../lib/auth'; // Pastikan path ini benar
 
 export async function POST(request) {
+  console.log('--- LOGIN API /api/auth/login POST HANDLER CALLED ---'); // Log untuk debugging
   try {
+    // Untuk sementara, kita bisa langsung kembalikan respons sukses
+    // untuk memastikan handler POST ini bisa dijangkau.
+    // Jika ini berhasil, masalahnya ada di dalam logika loginUser atau pemrosesan request.json().
+    // return NextResponse.json({ message: 'Login API POST handler reached successfully.' }, { status: 200 });
+
+    // Kode asli Anda:
     const { email, password } = await request.json();
     
     if (!email || !password) {
+      console.log('[API Login] Email atau password kosong.');
       return NextResponse.json(
         { success: false, message: 'Email dan password harus diisi.' },
         { status: 400 }
       );
     }
     
-    // Memanggil fungsi loginUser yang sudah diimpor
+    console.log(`[API Login] Mencoba login untuk email: ${email}`);
     const user = await loginUser({ email, password });
+    console.log('[API Login] loginUser berhasil, user:', user);
     
-    // Jika loginUser berhasil, user akan berisi data pengguna
     return NextResponse.json(
       {
         success: true,
         message: 'Login berhasil.',
-        user: { // Kembalikan data user yang aman
+        user: { 
           id: user.id,
           name: user.name,
           email: user.email
         }
       },
-      { status: 200 } // Status 200 OK untuk login berhasil
+      { status: 200 }
     );
   } catch (error) {
-    console.error('API Login error:', error.message); // Log error di sisi server
-    // Mengembalikan pesan error yang diterima dari loginUser atau pesan generik
+    console.error('[API Login] Catch error:', error.message, error.stack);
+    const errorMessage = error.message && error.message.toLowerCase().includes('email atau password salah') 
+                       ? error.message 
+                       : 'Terjadi kesalahan internal saat login.';
+    const errorStatus = error.message && error.message.toLowerCase().includes('email atau password salah') ? 401 : 500;
+    
     return NextResponse.json(
-      { success: false, message: error.message || 'Terjadi kesalahan internal saat login.' },
-      // Status 401 untuk kredensial salah, 500 untuk error server lainnya
-      { status: error.message.toLowerCase().includes('email atau password salah') ? 401 : 500 } 
+      { success: false, message: errorMessage, details: error.stack }, // Sertakan stack untuk debug di dev
+      { status: errorStatus } 
     );
   }
+}
+
+// Opsional: Tambahkan handler GET untuk menguji apakah file route ini dikenali sama sekali
+export async function GET(request) {
+  console.log('--- LOGIN API /api/auth/login GET HANDLER CALLED ---');
+  return NextResponse.json({ message: 'Login API GET handler. Gunakan metode POST untuk login.' }, { status: 200 });
 }

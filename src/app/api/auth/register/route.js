@@ -5,7 +5,6 @@ export async function POST(request) {
   try {
     const { name, email, password } = await request.json();
 
-    // Validasi input
     if (!name || !email || !password) {
       return NextResponse.json(
         { success: false, message: 'Semua field harus diisi' },
@@ -13,7 +12,6 @@ export async function POST(request) {
       );
     }
 
-    // Email validation regex
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
       return NextResponse.json(
@@ -22,7 +20,6 @@ export async function POST(request) {
       );
     }
 
-    // Password validation (minimal 6 karakter)
     if (password.length < 6) {
       return NextResponse.json(
         { success: false, message: 'Password minimal 6 karakter' },
@@ -30,13 +27,12 @@ export async function POST(request) {
       );
     }
 
-    // Register user
     const user = await registerUser({ name, email, password });
 
     return NextResponse.json(
       {
         success: true,
-        message: 'Registrasi berhasil',
+        message: 'Registrasi berhasil. Anda sekarang dapat login.', // Pesan disesuaikan karena tidak ada verifikasi email
         user: {
           id: user.id,
           name: user.name,
@@ -46,10 +42,8 @@ export async function POST(request) {
       { status: 201 }
     );
   } catch (error) {
-    console.error('Error registrasi:', error);
-    
-    // Specific error handling
-    if (error.message?.includes('duplicate key')) {
+    // console.error('API Registrasi error:', error); // Hapus untuk production
+    if (error.message?.includes('duplicate key') || error.message?.includes('unique constraint')) { // Periksa juga unique constraint
       return NextResponse.json(
         { success: false, message: 'Email sudah terdaftar' },
         { status: 400 }
@@ -61,4 +55,4 @@ export async function POST(request) {
       { status: 500 }
     );
   }
-} 
+}

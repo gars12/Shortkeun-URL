@@ -1,10 +1,9 @@
-// src/components/Auth/LoginForm.jsx
 'use client';
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { FaEnvelope, FaLock, FaSignInAlt, FaUserPlus, FaLink } from 'react-icons/fa'; 
+import { FaEnvelope, FaLock, FaSignInAlt, FaUserPlus, FaLink, FaExclamationTriangle } from 'react-icons/fa';
 
 export default function LoginForm() {
   const router = useRouter();
@@ -14,21 +13,26 @@ export default function LoginForm() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [showVerificationAlert, setShowVerificationAlert] = useState(false);
+  const [userId, setUserId] = useState(null);
+  const [resendLoading, setResendLoading] = useState(false);
   
+  // Cek apakah pengguna sudah login
   useEffect(() => {
     async function checkAuthStatus() {
       try {
         const response = await fetch('/api/auth/user');
-        if (response.ok) {
-          const data = await response.json();
-          if (data.user) {
-            router.push('/dashboard');
-          }
+        const data = await response.json();
+        
+        // Jika pengguna sudah login, redirect ke dashboard
+        if (response.ok && data.user) {
+          router.push('/dashboard');
         }
-      } catch (err) {
-        console.error('Error checking auth status:', err);
+      } catch (error) {
+        console.error('Error checking auth status:', error);
       }
     }
+    
     checkAuthStatus();
   }, [router]);
 
@@ -43,6 +47,7 @@ export default function LoginForm() {
     e.preventDefault();
     setLoading(true);
     setError('');
+    setShowVerificationAlert(false);
 
     try {
       const res = await fetch('/api/auth/login', {
@@ -56,16 +61,72 @@ export default function LoginForm() {
       const data = await res.json();
 
       if (!res.ok) {
+        // Cek apakah error karena email belum diverifikasi
+        if (data.message && data.message.includes('Email belum diverifikasi')) {
+          setShowVerificationAlert(true);
+          
+          // Coba dapatkan userId untuk keperluan kirim ulang email verifikasi
+          try {
+            const userRes = await fetch('/api/auth/get-user-by-email', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ email: formData.email })
+            });
+            
+            const userData = await userRes.json();
+            if (userRes.ok && userData.user) {
+              setUserId(userData.user.id);
+            }
+          } catch (userError) {
+            console.error('Error mendapatkan user ID:', userError);
+          }
+        }
+        
         throw new Error(data.message || 'Terjadi kesalahan saat login');
       }
+
+      // Redirect ke dashboard setelah login berhasil
       router.push('/dashboard');
-    } catch (err) {
-      setError(err.message);
+    } catch (error) {
+      setError(error.message);
     } finally {
       setLoading(false);
     }
   };
   
+  // Fungsi untuk mengirim ulang email verifikasi
+  const handleResendVerification = async () => {
+    if (!userId) {
+      setError('Tidak dapat mengirim email verifikasi. Silakan coba lagi nanti.');
+      return;
+    }
+    
+    setResendLoading(true);
+    try {
+      const res = await fetch('/api/auth/resend-verification', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ userId })
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.message || 'Terjadi kesalahan saat mengirim ulang email verifikasi');
+      }
+
+      alert('Email verifikasi telah dikirim ulang. Silakan cek inbox email Anda.');
+    } catch (error) {
+      setError(error.message);
+    } finally {
+      setResendLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-[80vh] flex flex-col items-center justify-center py-8 px-4">
       <Link href="/" className="flex items-center space-x-2 mb-8 group">
@@ -90,6 +151,23 @@ export default function LoginForm() {
           </div>
         )}
         
+        {showVerificationAlert && (
+          <div className="bg-yellow-900/30 border border-yellow-500/50 text-yellow-300 px-3 py-4 md:px-4 md:py-5 rounded-lg mb-6 text-sm md:text-base">
+            <div className="flex items-center mb-2">
+              <FaExclamationTriangle className="mr-2 text-yellow-400" />
+              <span className="font-semibold">Email belum diverifikasi</span>
+            </div>
+            <p className="mb-3">Silakan cek inbox email Anda untuk link verifikasi yang telah dikirim sebelumnya.</p>
+            <button 
+              onClick={handleResendVerification}
+              disabled={resendLoading || !userId}
+              className="w-full py-2 bg-yellow-800/50 hover:bg-yellow-800/70 border border-yellow-600/50 rounded-md text-yellow-200 transition-colors"
+            >
+              {resendLoading ? 'Mengirim...' : 'Kirim Ulang Email Verifikasi'}
+            </button>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit}>
           <div className="mb-4 md:mb-6">
             <label className="block text-blue-300 text-xs md:text-sm font-semibold mb-2" htmlFor="email">
@@ -145,7 +223,30 @@ export default function LoginForm() {
               disabled={loading}
             >
               {loading ? (
-                <span>Login...</span>
+                <>
+                  <div className="relative w-5 h-5 mr-2">
+                    <svg className="w-5 h-5 absolute top-0 left-0 animate-spin" viewBox="0 0 24 24">
+                      <circle 
+                        className="opacity-25" 
+                        cx="12" 
+                        cy="12" 
+                        r="10" 
+                        stroke="rgba(255,255,255,0.3)" 
+                        strokeWidth="2" 
+                        fill="none"
+                      />
+                      <path 
+                        className="opacity-75" 
+                        fill="none"
+                        stroke="white"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        d="M12 2a10 10 0 0 1 10 10"
+                      />
+                    </svg>
+                  </div>
+                  <span>Login...</span>
+                </>
               ) : (
                 <>
                   <FaSignInAlt className="text-base" />
@@ -165,9 +266,10 @@ export default function LoginForm() {
         </form>
       </div>
       
+      {/* Network Nodes (Decorative) */}
       <div className="absolute inset-0 -z-10 overflow-hidden">
         <div className="connection-lines"></div>
       </div>
     </div>
   );
-}
+} 
