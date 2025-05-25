@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { FaLink, FaChartLine, FaShieldAlt, FaArrowRight, FaChevronDown, FaCheck, FaRegStar, FaStar, FaHistory, FaFingerprint, FaUserAlt } from 'react-icons/fa';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 
 export default function Home() {
   const router = useRouter();
@@ -148,7 +149,7 @@ export default function Home() {
                   <FaLink className="text-blue-400" />
                 </div>
                 <div className="h-full w-full bg-blue-950/30 rounded-2xl flex items-center justify-center">
-                  <img src="/logo.png" alt="ShortKeun Logo" className="w-20 h-20 opacity-75" />
+                  <img src="/logos.jpg" alt="ShortKeun Logo" className="w-50 h-50 opacity-75 rounded-2xl" />
                 </div>
               </div>
             </div>
