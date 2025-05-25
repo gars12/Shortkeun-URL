@@ -1,10 +1,12 @@
+// src/components/ShortUrl/UrlList.jsx
 'use client';
 
 import { useState, useEffect } from 'react';
-import { formatDistance } from 'date-fns';
-import { id } from 'date-fns/locale';
+import { formatDistance, isValid as isValidDate } from 'date-fns';
+import { id as localeID } from 'date-fns/locale';
+import { toZonedTime, format as formatWithTimeZone } from 'date-fns-tz';
 import { FaCopy, FaTrash, FaExternalLinkAlt, FaChartBar, FaClock, FaCheck } from 'react-icons/fa';
-import DeleteConfirmationModal from '../Modal/DeleteConfirmationModal'; // Pastikan path ini benar
+import DeleteConfirmationModal from '../Modal/DeleteConfirmationModal';
 
 export default function UrlList({ refreshTrigger }) {
   const [urls, setUrls] = useState([]);
@@ -13,7 +15,9 @@ export default function UrlList({ refreshTrigger }) {
   const [copied, setCopied] = useState(null);
 
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [itemToDelete, setItemToDelete] = useState(null); // Format: { id: string, code: string }
+  const [itemToDelete, setItemToDelete] = useState(null);
+
+  const timeZone = 'Asia/Jakarta';
 
   const fetchUrls = async () => {
     setLoading(true);
@@ -76,15 +80,28 @@ export default function UrlList({ refreshTrigger }) {
     }
   };
 
-  const formatDate = (dateString) => {
-    if (!dateString) return '-';
+  const formatDateToWIB = (dateString) => {
+    if (!dateString || dateString.toLowerCase() === 'null') {
+      return '-';
+    }
     try {
-      return formatDistance(new Date(dateString), new Date(), {
+      const dateObj = new Date(dateString);
+      if (!isValidDate(dateObj)) {
+          // Untuk production, console.warn bisa dihilangkan atau diganti sistem logging
+          // console.warn(`[UrlList - formatDateToWIB] dateString "${dateString}" menghasilkan objek Date yang TIDAK VALID.`);
+          return 'Format tanggal salah';
+      }
+      const zonedDate = toZonedTime(dateObj, timeZone);
+      const nowInWIB = toZonedTime(new Date(), timeZone);
+      const result = formatDistance(zonedDate, nowInWIB, {
         addSuffix: true,
-        locale: id
+        locale: localeID
       });
+      return result;
     } catch (e) {
-      return 'Tanggal tidak valid';
+      // Untuk production, console.error bisa dihilangkan atau diganti sistem logging
+      // console.error(`[UrlList - formatDateToWIB] EXCEPTION saat memformat "${dateString}":`, e.message);
+      return 'Tanggal error'; 
     }
   };
 
@@ -189,7 +206,7 @@ export default function UrlList({ refreshTrigger }) {
                     </div>
                   </td>
                   <td className="py-3 px-4 text-sm text-blue-300">
-                    {formatDate(url.createdAt)}
+                    {formatDateToWIB(url.createdAt)}
                   </td>
                   <td className="py-3 px-4">
                     {isUrlExpired ? (
@@ -200,7 +217,7 @@ export default function UrlList({ refreshTrigger }) {
                     ) : url.expiredAt ? (
                       <span className="text-blue-300 text-sm flex items-center">
                         <FaClock className="mr-1 text-xs" />
-                        {formatDate(url.expiredAt)}
+                        {formatDateToWIB(url.expiredAt)}
                       </span>
                     ) : (
                       <span className="text-blue-300/50 text-sm">-</span>

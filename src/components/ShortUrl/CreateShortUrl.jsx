@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { FaLink, FaCircleNotch, FaClock, FaFingerprint } from 'react-icons/fa';
-import Toast from '../Notification/Toast';
+import { FaLink, FaClock, FaFingerprint } from 'react-icons/fa';
+import Toast from '../Notification/Toast'; 
 
 export default function CreateShortUrl({ onUrlCreated, userId }) {
   const [formData, setFormData] = useState({
@@ -11,7 +11,7 @@ export default function CreateShortUrl({ onUrlCreated, userId }) {
     expiry: { value: '', unit: 'days' }
   });
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(''); // Untuk error inline jika toast tidak digunakan untuk ini
   const [toast, setToast] = useState({
     show: false,
     message: '',
@@ -22,20 +22,11 @@ export default function CreateShortUrl({ onUrlCreated, userId }) {
     const { name, value } = e.target;
     
     if (name === 'expiryValue') {
-      setFormData({
-        ...formData,
-        expiry: { ...formData.expiry, value }
-      });
+      setFormData({ ...formData, expiry: { ...formData.expiry, value } });
     } else if (name === 'expiryUnit') {
-      setFormData({
-        ...formData,
-        expiry: { ...formData.expiry, unit: value }
-      });
+      setFormData({ ...formData, expiry: { ...formData.expiry, unit: value } });
     } else {
-      setFormData({
-        ...formData,
-        [name]: value
-      });
+      setFormData({ ...formData, [name]: value });
     }
   };
 
@@ -44,27 +35,33 @@ export default function CreateShortUrl({ onUrlCreated, userId }) {
   };
 
   const showToast = (message, type = 'success') => {
-    setToast({
-      show: true,
-      message,
-      type
-    });
+    setToast({ show: true, message, type });
+    if (type === 'error') {
+        setError(message); // Juga set error inline jika diperlukan
+    } else {
+        setError(''); // Hapus error inline jika sukses
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setError('');
+    setError(''); // Reset error sebelum submit
     
+    let cleanOriginalUrl = formData.originalUrl;
+    if (formData.originalUrl && !formData.originalUrl.startsWith('http://') && !formData.originalUrl.startsWith('https://')) {
+        cleanOriginalUrl = 'https://' + formData.originalUrl;
+    }
+
     const payload = {
-      originalUrl: formData.originalUrl,
-      customSlug: formData.customSlug || undefined,
+      originalUrl: cleanOriginalUrl,
+      customSlug: formData.customSlug.trim() || undefined,
       userId: userId || undefined
     };
 
-    if (formData.expiry.value) {
+    if (formData.expiry.value && parseInt(formData.expiry.value, 10) > 0) {
       payload.expiry = {
-        value: formData.expiry.value,
+        value: parseInt(formData.expiry.value, 10),
         unit: formData.expiry.unit
       };
     }
@@ -72,16 +69,17 @@ export default function CreateShortUrl({ onUrlCreated, userId }) {
     try {
       const res = await fetch('/api/shorturl/create', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
 
-      const data = await res.json();
+      const data = await res.json(); // Selalu coba parse JSON
 
       if (!res.ok) {
-        throw new Error(data.message || 'Terjadi kesalahan saat membuat URL pendek');
+        // Gunakan data.message dari API jika ada, jika tidak, buat pesan error generik
+        // Ini akan menjadi pesan yang ditampilkan di toast atau error inline
+        const errorMessage = data?.message || `Terjadi kesalahan (HTTP ${res.status})`;
+        throw new Error(errorMessage); 
       }
 
       setFormData({
@@ -95,9 +93,10 @@ export default function CreateShortUrl({ onUrlCreated, userId }) {
       if (onUrlCreated) {
         onUrlCreated(data.shortUrl);
       }
-    } catch (error) {
-      setError(error.message);
-      showToast(error.message, 'error');
+    } catch (err) {
+      // err.message di sini akan berisi errorMessage yang sudah kita siapkan
+      showToast(err.message, 'error'); 
+      // setError(err.message); // showToast sudah memanggil setError jika tipenya error
     } finally {
       setLoading(false);
     }
@@ -110,7 +109,7 @@ export default function CreateShortUrl({ onUrlCreated, userId }) {
         type={toast.type}
         isVisible={toast.show}
         onClose={handleCloseToast}
-        duration={1000}
+        duration={toast.type === 'error' ? 5000 : 3000} // Durasi lebih lama untuk error
       />
       
       <div className="bg-white/5 backdrop-blur-md border border-white/10 rounded-xl p-4 md:p-6 shadow-2xl">
@@ -118,11 +117,12 @@ export default function CreateShortUrl({ onUrlCreated, userId }) {
           <FaLink className="mr-2 text-blue-400" /> Buat URL Pendek
         </h2>
 
-        {error && (
+        {/* Pesan error inline bisa dipertimbangkan untuk dihapus jika Toast sudah cukup */}
+        {/* {error && !toast.show && ( 
           <div className="bg-red-900/30 border border-red-500/50 text-red-300 px-3 py-2 text-sm md:text-base rounded-lg mb-4">
             {error}
           </div>
-        )}
+        )} */}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -137,7 +137,7 @@ export default function CreateShortUrl({ onUrlCreated, userId }) {
                 value={formData.originalUrl}
                 onChange={handleChange}
                 className="bg-blue-900/20 border border-blue-700/50 text-white w-full py-2 px-3 text-sm rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-                placeholder="https://example.com/halaman-dengan-url-panjang"
+                placeholder="https://example.com/halaman-panjang"
                 required
               />
             </div>
@@ -152,7 +152,7 @@ export default function CreateShortUrl({ onUrlCreated, userId }) {
             </label>
             <div className="flex rounded-lg overflow-hidden">
               <span className="inline-flex items-center px-2 text-xs text-blue-300 bg-blue-900/40 border border-r-0 border-blue-700/50">
-                {process.env.NEXT_PUBLIC_APP_URL}/
+                {(process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000').replace(/^https?:\/\//, '')}/
               </span>
               <input
                 type="text"
@@ -161,7 +161,7 @@ export default function CreateShortUrl({ onUrlCreated, userId }) {
                 value={formData.customSlug}
                 onChange={handleChange}
                 className="bg-blue-900/20 border border-blue-700/50 text-white flex-1 py-2 px-3 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all"
-                placeholder="custom-url"
+                placeholder="url-kustom-saya"
               />
             </div>
           </div>
@@ -189,36 +189,11 @@ export default function CreateShortUrl({ onUrlCreated, userId }) {
                 onChange={handleChange}
                 className="border border-l-0 border-blue-700/50 rounded-r-lg w-2/3 py-2 px-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all bg-blue-900 text-white"
               >
-                <option 
-                  value="minutes" 
-                  className="bg-blue-900 text-white"
-                >
-                  Menit
-                </option>
-                <option 
-                  value="hours" 
-                  className="bg-blue-900 text-white"
-                >
-                  Jam
-                </option>
-                <option 
-                  value="days" 
-                  className="bg-blue-900 text-white"
-                >
-                  Hari
-                </option>
-                <option 
-                  value="weeks" 
-                  className="bg-blue-900 text-white"
-                >
-                  Minggu
-                </option>
-                <option 
-                  value="months" 
-                  className="bg-blue-900 text-white"
-                >
-                  Bulan
-                </option>
+                <option value="minutes" className="bg-blue-900 text-white">Menit</option>
+                <option value="hours" className="bg-blue-900 text-white">Jam</option>
+                <option value="days" className="bg-blue-900 text-white">Hari</option>
+                <option value="weeks" className="bg-blue-900 text-white">Minggu</option>
+                <option value="months" className="bg-blue-900 text-white">Bulan</option>
               </select>
             </div>
           </div>
@@ -231,35 +206,8 @@ export default function CreateShortUrl({ onUrlCreated, userId }) {
             {loading ? (
               <>
                 <div className="relative w-5 h-5 mr-2">
-                  <svg className="w-5 h-5 absolute top-0 left-0 animate-spin" viewBox="0 0 24 24">
-                    <circle 
-                      className="opacity-25" 
-                      cx="12" 
-                      cy="12" 
-                      r="10" 
-                      stroke="rgba(255,255,255,0.3)" 
-                      strokeWidth="2" 
-                      fill="none"
-                    />
-                    <path 
-                      className="opacity-75" 
-                      fill="none"
-                      stroke="white"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      d="M12 2a10 10 0 0 1 10 10"
-                    />
-                  </svg>
-                  <svg className="w-4 h-4 absolute top-0.5 left-0.5 animate-spin-reverse" viewBox="0 0 24 24">
-                    <path 
-                      className="opacity-90" 
-                      fill="none"
-                      stroke="rgba(255,255,255,0.8)"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      d="M12 6a6 6 0 0 0 -6 6"
-                    />
-                  </svg>
+                  <svg className="w-5 h-5 absolute top-0 left-0 animate-spin" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.3)" strokeWidth="2" fill="none"/><path className="opacity-75" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" d="M12 2a10 10 0 0 1 10 10"/></svg>
+                  <svg className="w-4 h-4 absolute top-0.5 left-0.5 animate-spin-reverse" viewBox="0 0 24 24"><path className="opacity-90" fill="none" stroke="rgba(255,255,255,0.8)" strokeWidth="2" strokeLinecap="round" d="M12 6a6 6 0 0 0 -6 6"/></svg>
                 </div>
                 <span>Sedang Membuat...</span>
               </>
@@ -274,4 +222,4 @@ export default function CreateShortUrl({ onUrlCreated, userId }) {
       </div>
     </>
   );
-} 
+}

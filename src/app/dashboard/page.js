@@ -1,13 +1,16 @@
+// src/app/dashboard/page.js
 'use client';
 
 import { useState, useEffect } from 'react';
-import Link from 'next/link';
+import Link from 'next/link'; 
 import Navbar from '../../components/Layout/Navbar';
 import CreateShortUrl from '../../components/ShortUrl/CreateShortUrl';
 import UrlList from '../../components/ShortUrl/UrlList';
 import { FaChartLine, FaLink, FaClock, FaGlobe, FaChartBar, FaRocket, FaArrowRight, FaInfoCircle } from 'react-icons/fa';
 import { format, subDays, startOfWeek, startOfMonth, startOfYear, eachDayOfInterval, isSameDay, addDays, isValid as isValidDate } from 'date-fns';
-import { id } from 'date-fns/locale';
+import { id as localeID } from 'date-fns/locale';
+import { toZonedTime, format as formatWithTimeZone } from 'date-fns-tz';
+
 import { Line } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -47,14 +50,16 @@ export default function Dashboard() {
   const [processedData, setProcessedData] = useState([]);
   const [labels, setLabels] = useState([]);
 
+  const timeZone = 'Asia/Jakarta'; 
+
   useEffect(() => {
     async function fetchUserData() {
       try {
         const response = await fetch('/api/auth/user');
         if (!response.ok) {
           setUser(null);
-          setUserId(null);
-          setLoading(false);
+          setUserId(null); 
+          setLoading(false); 
           return;
         }
         const userData = await response.json();
@@ -63,14 +68,14 @@ export default function Dashboard() {
           setUserId(userData.user.id);
         } else {
           setUser(null);
-          setUserId(null);
-          setLoading(false);
+          setUserId(null); 
+          setLoading(false); 
         }
       } catch (error) {
-        // console.error('[Dashboard] Error fetching user data:', error); // Hapus di prod
+        // console.error("Error fetching user data:", error); // Dihapus untuk produksi
         setUser(null);
         setUserId(null);
-        setLoading(false);
+        setLoading(false); 
       }
     }
     fetchUserData();
@@ -89,13 +94,15 @@ export default function Dashboard() {
       try {
         const response = await fetch('/api/shorturl/all');
         if (!response.ok) {
-          // console.error('[Dashboard] Gagal mengambil data URL:', response.status); // Hapus di prod
+          // console.error("Gagal mengambil data URL dari API, status:", response.status); // Dihapus untuk produksi
           setStatistics({ totalUrls: 0, totalClicks: 0, activeUrls: 0 });
           setClickData([]);
           return;
         }
         
         const data = await response.json();
+        // console.log("[Dashboard] Data mentah dari /api/shorturl/all (maks 2 item):", JSON.stringify(data?.data?.slice(0,2), null, 2)); // Dihapus
+
         if (data && data.data) {
           const urls = data.data;
           const totalClicks = urls.reduce((acc, url) => acc + (url.clickCount || 0), 0);
@@ -107,7 +114,13 @@ export default function Dashboard() {
           urls.forEach(url => {
             const historySource = url.clickHistory || url.clicks;
             if (historySource && Array.isArray(historySource) && historySource.length > 0) {
-              aggregatedClickHistory.push(...historySource);
+              historySource.forEach(clickEvent => {
+                if(clickEvent.timestamp){ 
+                    aggregatedClickHistory.push(clickEvent);
+                } else {
+                    // console.warn("[Dashboard] Ditemukan event klik tanpa timestamp:", clickEvent); // Dihapus untuk produksi
+                }
+              });
             }
           });
           setClickData(aggregatedClickHistory);
@@ -116,7 +129,7 @@ export default function Dashboard() {
           setClickData([]);
         }
       } catch (error) {
-        // console.error('[Dashboard] Error saat mengambil statistik & klik:', error); // Hapus di prod
+        // console.error("Error saat mengambil statistik & klik:", error); // Dihapus untuk produksi
         setStatistics({ totalUrls: 0, totalClicks: 0, activeUrls: 0 });
         setClickData([]);
       } finally {
@@ -126,57 +139,66 @@ export default function Dashboard() {
     
     if (userId) {
       fetchStatisticsAndClicks();
-    } else if (user === null && loading) { 
+    } else if (user === null && loading && userId === null) { 
       setLoading(false);
     }
 
-  }, [userId, refreshTrigger, user, loading]); // Tambahkan user dan loading sbg dependensi untuk initial load
+  }, [userId, refreshTrigger, user, loading]);
 
   useEffect(() => {
     function processClickDataForChart() {
+      // console.log("[processClickDataForChart] Memulai. clickData:", JSON.stringify(clickData.slice(0,5))); // Dihapus
       if (!clickData || clickData.length === 0) {
         setProcessedData([]);
         setLabels([]);
         return;
       }
       
-      let startDate;
-      let endDate = new Date(); 
+      const nowInWIB = toZonedTime(new Date(), timeZone);
+      let startDateInWIB;
+      let endDateInWIB = nowInWIB; 
       let dateFormat = 'EEE'; 
       
       switch(timeRange) {
         case 'week':
-          startDate = startOfWeek(new Date(), { weekStartsOn: 1 }); 
-          endDate = addDays(startDate, 6); 
+          startDateInWIB = startOfWeek(nowInWIB, { weekStartsOn: 1, locale: localeID }); 
+          endDateInWIB = addDays(startDateInWIB, 6); 
           dateFormat = 'EEE'; 
           break;
         case 'month':
-          startDate = startOfMonth(new Date());
+          startDateInWIB = startOfMonth(nowInWIB);
           dateFormat = 'd'; 
           break;
         case 'year':
-          startDate = startOfYear(new Date());
+          startDateInWIB = startOfYear(nowInWIB);
           dateFormat = 'MMM'; 
           break;
         default:
-          startDate = subDays(new Date(), 6); 
+          startDateInWIB = subDays(nowInWIB, 6); 
           dateFormat = 'EEE';
       }
       
-      const datesInRange = eachDayOfInterval({ start: startDate, end: endDate });
-      const newLabels = datesInRange.map(date => format(date, dateFormat, { locale: id }));
+      const datesInRangeWIB = eachDayOfInterval({ start: startDateInWIB, end: endDateInWIB });
+      const newLabels = datesInRangeWIB.map(date => formatWithTimeZone(date, dateFormat, { timeZone, locale: localeID }));
       
-      const clickCounts = datesInRange.map(rangeDate => {
+      const clickCounts = datesInRangeWIB.map(rangeDateWIB => {
         let countForThisDate = 0;
         clickData.forEach(click => {
-          if (!click || !click.timestamp) return;
+          if (!click || !click.timestamp) {
+            return;
+          }
           try {
-            const clickDate = new Date(click.timestamp);
-            if (isValidDate(clickDate) && isSameDay(clickDate, rangeDate)) {
-              countForThisDate++;
+            const clickUTCDate = new Date(click.timestamp); 
+            if (isValidDate(clickUTCDate)) {
+              const clickDateInWIB = toZonedTime(clickUTCDate, timeZone);
+              if (formatWithTimeZone(clickDateInWIB, 'yyyy-MM-dd', { timeZone }) === formatWithTimeZone(rangeDateWIB, 'yyyy-MM-dd', { timeZone })) {
+                countForThisDate++;
+              }
+            } else {
+              // console.warn(`[processClickDataForChart] Timestamp klik tidak valid setelah new Date(): "${click.timestamp}"`); // Dihapus
             }
           } catch (err) {
-            // console.error('[Dashboard processClickDataForChart] Error memproses timestamp klik:', err, click); // Hapus di prod
+            //  console.error('[processClickDataForChart] Error memproses timestamp klik individual:', err, "Timestamp bermasalah:", click.timestamp); // Dihapus
           }
         });
         return countForThisDate;
@@ -187,7 +209,7 @@ export default function Dashboard() {
     }
     
     processClickDataForChart();
-  }, [clickData, timeRange]);
+  }, [clickData, timeRange, timeZone]);
   
   const handleUrlCreated = () => {
     setRefreshTrigger(prev => prev + 1);
@@ -244,7 +266,7 @@ export default function Dashboard() {
     }
   };
 
-  const mainContentLoading = loading && userId === null && user === null;
+  const mainContentLoading = loading && user === null;
 
   if (mainContentLoading) {
     return (
